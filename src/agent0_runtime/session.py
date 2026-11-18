@@ -12,7 +12,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from .types import CancellationToken, Message
+from .types import CancellationToken, Message, SteerInbox
 
 
 def new_session_id() -> str:
@@ -73,3 +73,4 @@ class RunContext:
     workspace: Any | None = None
     services: Mapping[str, Any] = field(default_factory=dict)
     cancellation: CancellationToken | None = None
+    steer: SteerInbox | None = None

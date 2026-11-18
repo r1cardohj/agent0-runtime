@@ -339,6 +339,28 @@ arbitrary synchronous plugin already running in a worker thread. On interruption
 all unanswered model tool calls receive an `error: interrupted` tool message so
 history remains replayable.
 
+## Steering
+
+To redirect work without cancelling in-flight tools or streams, pass a
+`SteerInbox` and `push` follow-ups while the run is active. The loop injects
+each drained text as a user message at a safe boundary: after a full tool batch
+completes, or before the next model call. If the model returns a final answer
+while follow-ups are still pending, the run continues instead of succeeding.
+
+```python
+from agent0_runtime import SteerInbox
+
+inbox = SteerInbox()
+result_task = asyncio.create_task(agent.run("refactor auth", session=session, steer=inbox))
+inbox.push("also update the tests")
+result = await result_task
+```
+
+Observers see a `steered` event with `texts` and `count`. Steering never cancels;
+use `CancellationToken` (or cancel the asyncio task) for a hard stop. Queueing a
+message until the current run finishes is host policy: await the first `run`,
+then call `run` again on the same session.
+
 ## Lifecycle hooks
 
 `LifecycleHooks` provides ordered, synchronous, read-only observers for session

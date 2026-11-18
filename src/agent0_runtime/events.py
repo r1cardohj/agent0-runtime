@@ -23,6 +23,7 @@ RuntimeEventKind = Literal[
     "route_changed",
     "usage",
     "compacted",
+    "steered",
     "tool_started",
     "tool_preview",
     "tool_finished",

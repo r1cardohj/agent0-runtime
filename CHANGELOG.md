@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- `SteerInbox` for Cursor-style soft follow-ups during an active `Agent.run`:
+  hosts `push` text; the loop injects each drained message as a user turn after
+  a tool batch or before the next model call, and continues if a final answer
+  arrives while follow-ups are still pending. Emits a `steered` runtime event.
+  Hard cancel remains `CancellationToken` / task cancellation.
+
 ## 0.1.2
 
 ### Added

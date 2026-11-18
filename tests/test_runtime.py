@@ -24,6 +24,7 @@ from agent0_runtime import (
     RunStatus,
     RuntimeSession,
     Shell,
+    SteerInbox,
     Tool,
     ToolCall,
     ToolRegistry,
@@ -195,6 +196,130 @@ class CoreLoopTests(unittest.TestCase):
         self.assertTrue(all(m["content"] == "error: interrupted" for m in answers))
         self.assertEqual(events[-1].kind, "turn_interrupted")
         self.assertNotIn("tool_finished", [event.kind for event in events])
+
+    def test_steer_injects_follow_up_after_tool_batch(self):
+        inbox = SteerInbox()
+
+        def push_inside_tool(_context, _args):
+            inbox.push("pivot")
+            return "tool-ok"
+
+        backend = FakeBackend(
+            [
+                ModelTurn(calls=[ToolCall("call-1", "echo", "{}")]),
+                ModelTurn(text="redirected", finish_reason="stop"),
+            ]
+        )
+        events = []
+        agent = Agent(backend, tools=ToolRegistry((echo_tool(handler=push_inside_tool),)))
+        agent.events.subscribe(events.append)
+        messages = []
+
+        result = asyncio.run(agent.run("go", cwd=self.cwd, messages=messages, steer=inbox))
+
+        self.assertEqual(result.status, RunStatus.SUCCEEDED)
+        self.assertEqual(result.text, "redirected")
+        self.assertEqual(
+            [m["role"] for m in messages],
+            ["user", "assistant", "tool", "user", "assistant"],
+        )
+        self.assertEqual(messages[3]["content"], "pivot")
+        self.assertFalse(inbox.pending)
+        steered = [event for event in events if event.kind == "steered"]
+        self.assertEqual(len(steered), 1)
+        self.assertEqual(steered[0].payload["texts"], ["pivot"])
+        self.assertEqual(steered[0].payload["count"], 1)
+        self.assertEqual(
+            [m["content"] for m in backend.requests[1].messages if m.get("role") == "user"],
+            ["go", "pivot"],
+        )
+
+    def test_steer_continues_when_final_answer_has_pending(self):
+        inbox = SteerInbox()
+
+        class PushThenAnswer(FakeBackend):
+            def __init__(self, script):
+                super().__init__(script)
+                self._pushed = False
+
+            async def complete(self, request, events):
+                if not self._pushed:
+                    inbox.push("one more thing")
+                    self._pushed = True
+                return await super().complete(request, events)
+
+        backend = PushThenAnswer(
+            [
+                ModelTurn(text="almost done", finish_reason="stop"),
+                ModelTurn(text="done after steer", finish_reason="stop"),
+            ]
+        )
+        events = []
+        agent = Agent(backend, tools=ToolRegistry())
+        agent.events.subscribe(events.append)
+        messages = []
+
+        result = asyncio.run(agent.run("go", cwd=self.cwd, messages=messages, steer=inbox))
+
+        self.assertEqual(result.status, RunStatus.SUCCEEDED)
+        self.assertEqual(result.text, "done after steer")
+        self.assertEqual(result.turns, 2)
+        self.assertEqual(
+            [m["role"] for m in messages],
+            ["user", "assistant", "user", "assistant"],
+        )
+        self.assertEqual(messages[1]["content"], "almost done")
+        self.assertEqual(messages[2]["content"], "one more thing")
+        self.assertEqual([event.kind for event in events].count("steered"), 1)
+        self.assertEqual(events[-1].kind, "turn_succeeded")
+
+    def test_steer_rejects_empty_push(self):
+        inbox = SteerInbox()
+        with self.assertRaises(ValueError):
+            inbox.push("  ")
+        with self.assertRaises(ValueError):
+            inbox.push("")
+
+    def test_cancel_wins_over_pending_steer(self):
+        token = CancellationToken()
+        inbox = SteerInbox()
+
+        def cancel_and_steer(_context, _args):
+            inbox.push("should not soft-continue")
+            token.cancel("host stopped")
+            return "side effect"
+
+        backend = FakeBackend(
+            [
+                ModelTurn(
+                    calls=[
+                        ToolCall("call-1", "echo", "{}"),
+                        ToolCall("call-2", "echo", "{}"),
+                    ]
+                )
+            ]
+        )
+        events = []
+        agent = Agent(backend, tools=ToolRegistry((echo_tool(handler=cancel_and_steer),)))
+        agent.events.subscribe(events.append)
+        messages = []
+
+        with self.assertRaises(AgentInterrupted) as caught:
+            asyncio.run(
+                agent.run(
+                    "go",
+                    cwd=self.cwd,
+                    messages=messages,
+                    cancellation=token,
+                    steer=inbox,
+                )
+            )
+
+        self.assertEqual(caught.exception.reason, "host stopped")
+        self.assertEqual(events[-1].kind, "turn_interrupted")
+        self.assertNotIn("steered", [event.kind for event in events])
+        self.assertNotIn("should not soft-continue", [m.get("content") for m in messages])
+        self.assertTrue(inbox.pending)
 
     def test_lifecycle_uses_real_session_and_matching_run_id(self):
         backend = FakeBackend([ModelTurn(text="done")])

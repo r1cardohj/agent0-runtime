@@ -200,3 +200,33 @@ class CancellationToken:
     def throw_if_cancelled(self, *, partial: str = "", run_id: str = "") -> None:
         if self.cancelled:
             raise AgentInterrupted(partial, reason=self.reason, run_id=run_id)
+
+
+class SteerInbox:
+    """Thread-safe follow-ups for one in-flight run (Cursor-style steer).
+
+    Hosts ``push`` while ``Agent.run`` is active; the loop drains at safe
+    boundaries (after a tool batch, before the next model call) and appends
+    each text as a user message without cancelling in-flight work.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._pending: list[str] = []
+
+    @property
+    def pending(self) -> bool:
+        with self._lock:
+            return bool(self._pending)
+
+    def push(self, text: str) -> None:
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError("steer text must be a non-empty string")
+        with self._lock:
+            self._pending.append(text)
+
+    def drain(self) -> list[str]:
+        with self._lock:
+            drained = self._pending
+            self._pending = []
+            return drained

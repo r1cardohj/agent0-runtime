@@ -33,6 +33,7 @@ from .types import (
     Recovery,
     RunResult,
     RunStatus,
+    SteerInbox,
     ToolCall,
     ToolResult,
     new_run_id,
@@ -101,6 +102,24 @@ def _answer_pending(messages: list[Message], calls: list[ToolCall]) -> None:
             messages.append(
                 {"role": "tool", "tool_call_id": call.id, "content": "error: interrupted"}
             )
+
+
+async def _apply_steers(
+    messages: list[Message],
+    steer: SteerInbox | None,
+    events: EventEmitter,
+) -> int:
+    """Drain follow-ups into history; return how many user messages were added."""
+
+    if steer is None:
+        return 0
+    texts = steer.drain()
+    if not texts:
+        return 0
+    for text in texts:
+        messages.append({"role": "user", "content": text})
+    await events.emit("steered", texts=texts, count=len(texts))
+    return len(texts)
 
 
 def _private_state(message: Message, state: dict[str, Any]) -> None:
@@ -411,6 +430,7 @@ class Agent:
         context_limit: int | None = None,
         prompt_tokens: int | None = None,
         cancellation: CancellationToken | None = None,
+        steer: SteerInbox | None = None,
         on_event: EventListener | None = None,
         session: Any | None = None,
         run_id: str = "",
@@ -428,6 +448,9 @@ class Agent:
         ``messages[0]``, older system messages are dropped, and later runs of that
         session keep it. There is no Agent-level prompt to fall back to, so an
         omitted ``system`` leaves the conversation's own prompt untouched.
+
+        ``steer`` accepts follow-ups while this run is active; they are injected
+        at safe boundaries without cancelling in-flight tools or streams.
         """
 
         runtime_session = session if isinstance(session, RuntimeSession) else None
@@ -454,6 +477,7 @@ class Agent:
             run_id=run_id or new_run_id(),
             workspace=selected_workspace,
             cancellation=cancellation,
+            steer=steer,
         )
         work = self.run_in_context(
             context,
@@ -499,6 +523,7 @@ class Agent:
             context_limit=context_limit,
             prompt_tokens=prompt_tokens,
             cancellation=context.cancellation,
+            steer=context.steer,
             services=services,
             events=events,
             generation=generation,
@@ -516,6 +541,7 @@ class Agent:
         context_limit: int | None,
         prompt_tokens: int | None,
         cancellation: CancellationToken | None,
+        steer: SteerInbox | None,
         services: Mapping[str, Any],
         events: EventEmitter,
         generation: GenerationConfig | None = None,
@@ -565,6 +591,8 @@ class Agent:
                 estimate = self.history.estimate(messages) if self.history else _estimate(messages)
                 await prepare(task, messages, estimate, events)
             while turns < max_turns:
+                if await _apply_steers(messages, steer, events):
+                    last_prompt = None
                 prompt = (
                     last_prompt
                     if last_prompt is not None
@@ -628,6 +656,12 @@ class Agent:
                     assistant["tool_calls"] = [call.as_message() for call in turn.calls]
                 messages.append(assistant)
                 if not turn.calls:
+                    if steer is not None and steer.pending:
+                        # Final model text arrived while follow-ups wait: keep the
+                        # assistant row, inject steers, and continue the same run.
+                        if await _apply_steers(messages, steer, events):
+                            last_prompt = None
+                        continue
                     result = RunResult(
                         text=turn.text,
                         status=RunStatus.SUCCEEDED,
@@ -673,6 +707,8 @@ class Agent:
                     _merge_attachments(tool_message, execution.result)
                     messages.append(tool_message)
                 pending = []
+                if await _apply_steers(messages, steer, events):
+                    last_prompt = None
 
             result = RunResult(
                 text="",
