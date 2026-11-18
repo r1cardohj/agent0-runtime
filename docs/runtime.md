@@ -185,6 +185,13 @@ conversations, so a prompt on it would be a second source of truth next to
 Read or change the effective prompt where the conversation lives:
 `session.messages[0]["content"]`.
 
+The canonical shape is exactly one system message at index 0. Provider adapters
+tolerate anything else — one `instructions` string goes out per request, so the
+*last* system message wins — but compaction only protects `messages[0]`, so a
+stray prompt later in the history is honoured on the wire and unprotected in the
+log. The runtime does not rewrite such a conversation: it logs a warning naming
+the positions and leaves the decision to the host.
+
 ## Tool registry
 
 `@tool` derives names, JSON schemas, required arguments, and descriptions from a

@@ -8,6 +8,9 @@
   prompt: it lands in `messages[0]`, older system messages are removed so exactly
   one remains, and later runs of that session keep it. There is no Agent-level
   prompt, so an omitted `system` never touches a conversation's own prompt.
+- A conversation whose system messages are not `[messages[0]]` logs a warning
+  naming the positions: adapters send the last one while compaction protects only
+  index 0, so the runtime reports the deviation instead of silently normalizing.
 
 ## 0.1.1
 

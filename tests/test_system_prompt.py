@@ -153,3 +153,57 @@ class SystemPromptWireFormatTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StraySystemMessageTests(unittest.TestCase):
+    """The runtime never rewrites a host's prompt layout behind its back."""
+
+    def test_a_stray_prompt_is_left_alone_and_reported(self) -> None:
+        backend = RecordingBackend()
+        messages = [
+            {"role": "system", "content": "base"},
+            {"role": "user", "content": "hi"},
+            {"role": "system", "content": "appended later"},
+        ]
+
+        with self.assertLogs("agent0_runtime.loop", level="WARNING") as logs:
+            asyncio.run(Agent(backend, close_backend=False).run("go", messages=messages))
+
+        self.assertEqual(
+            system_of(messages),
+            [
+                {"role": "system", "content": "base"},
+                {"role": "system", "content": "appended later"},
+            ],
+            "history keeps both; the host decides what to do",
+        )
+        self.assertIn("2 system messages", logs.output[0])
+        self.assertIn("[0, 2]", logs.output[0])
+
+    def test_the_canonical_shape_is_not_reported(self) -> None:
+        backend = RecordingBackend()
+        messages = [{"role": "system", "content": "base"}]
+
+        with self.assertNoLogs("agent0_runtime.loop", level="WARNING"):
+            asyncio.run(Agent(backend, close_backend=False).run("go", messages=messages))
+
+    def test_no_prompt_at_all_is_not_reported(self) -> None:
+        backend = RecordingBackend()
+
+        with self.assertNoLogs("agent0_runtime.loop", level="WARNING"):
+            asyncio.run(Agent(backend, close_backend=False).run("go", messages=[]))
+
+    def test_an_override_canonicalizes_before_the_request(self) -> None:
+        backend = RecordingBackend()
+        messages = [
+            {"role": "system", "content": "base"},
+            {"role": "user", "content": "hi"},
+            {"role": "system", "content": "later"},
+        ]
+
+        with self.assertNoLogs("agent0_runtime.loop", level="WARNING"):
+            asyncio.run(
+                Agent(backend, close_backend=False).run("go", messages=messages, system="only")
+            )
+
+        self.assertEqual(system_of(messages), [{"role": "system", "content": "only"}])

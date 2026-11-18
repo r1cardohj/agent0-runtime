@@ -114,17 +114,23 @@ def _merge_attachments(message: Message, result: ToolResult) -> None:
         message[TOOL_ATTACHMENTS_KEY] = [block.to_dict() for block in result.attachments]
 
 
+def _system_prompt_positions(messages: list[Message]) -> list[int]:
+    return [index for index, message in enumerate(messages) if message.get("role") == "system"]
+
+
 def _apply_system_prompt(messages: list[Message], prompt: str) -> bool:
     """Put ``prompt`` at ``messages[0]``, leaving exactly one system message.
 
-    Every provider adapter reads the system prompt from a single leading
-    message (``responses.request_input`` turns it into ``instructions``), so an
-    override also removes any older system messages instead of stacking them.
+    This is the canonical shape: every provider adapter reads one leading system
+    message (``responses.request_input`` turns it into ``instructions``), and
+    compaction only protects ``messages[0]``. Hosts that build their own history
+    should keep the same shape; the runtime only rewrites it when a host
+    explicitly passes ``system=``.
     """
 
     if not prompt:
         return False
-    existing = [index for index, m in enumerate(messages) if m.get("role") == "system"]
+    existing = _system_prompt_positions(messages)
     if existing == [0] and messages[0].get("content") == prompt:
         return False
     for index in reversed(existing):
@@ -502,6 +508,16 @@ class Agent:
             if not isinstance(system, str):
                 raise TypeError("system must be a string or None")
             _apply_system_prompt(messages, system)
+        elif (positions := _system_prompt_positions(messages)) not in ([], [0]):
+            # Never rewrite a host's history behind its back; make the deviation
+            # visible instead. Adapters send the last one, compaction protects
+            # only index 0, so anything else is a latent inconsistency.
+            logger.warning(
+                "conversation has %s system messages at %s; providers send the last one "
+                "and compaction protects only messages[0] — keep one prompt at index 0",
+                len(positions),
+                positions,
+            )
         messages.append({"role": "user", "content": task})
         last_prompt = prompt_tokens
         total_usage: dict[str, int] | None = None

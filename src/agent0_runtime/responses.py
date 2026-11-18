@@ -73,6 +73,11 @@ def request_input(
 
     Raw output items replace their assistant message only for the provider that
     produced them. This keeps compaction and provider switching stateless.
+
+    One instructions string goes out per request, so a system message anywhere in
+    the history is folded into it and the **last** one wins. Hosts should keep
+    exactly one system message at ``messages[0]``, the position compaction
+    protects; ``Agent`` warns when a conversation deviates from that shape.
     """
     instructions = None
     out: list[dict[str, Any]] = []
