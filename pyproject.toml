@@ -27,6 +27,18 @@ classifiers = [
 ]
 dependencies = [
     "openai>=1.40.0",
+]
+
+[project.optional-dependencies]
+# The model integration layer is always required; every other capability is
+# opt-in so `pip install agent0-runtime` stays small for headless embedders.
+images = ["pillow>=12.3.0"]
+web = [
+    "trafilatura>=2.3,<3",
+    "urllib3>=2",
+    "certifi>=2024",
+]
+all = [
     "pillow>=12.3.0",
     "trafilatura>=2.3,<3",
     "urllib3>=2",

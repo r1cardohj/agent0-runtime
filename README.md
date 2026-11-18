@@ -11,6 +11,18 @@ application policy belong to consumers.
 python -m pip install agent0-runtime
 ```
 
+`openai` is the only required dependency. Image reading and web fetch are opt-in
+extras (web search needs only the standard library), and nothing from an extra is
+imported unless the matching tool runs:
+
+```bash
+python -m pip install "agent0-runtime[images]"  # Pillow image attachments
+python -m pip install "agent0-runtime[web]"     # trafilatura + urllib3 + certifi
+python -m pip install "agent0-runtime[all]"     # every optional capability
+```
+
+A host that embeds the loop with its own tools never pays for the extras.
+
 Python 3.10 through 3.13 are supported. The package is typed and ships `py.typed`.
 
 ## Minimal agent
@@ -68,6 +80,8 @@ ruff format --check .
 python -m build
 python -m twine check --strict dist/*
 ```
+
+Run the tests with `-e .[all]` when you touch images or web tools.
 
 ## License
 

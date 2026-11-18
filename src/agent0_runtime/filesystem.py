@@ -122,7 +122,10 @@ def read_file(
                 "[Current model does not support images. The image is omitted from this request.]"
             )
         if image_reader is None:
-            return f"error: image reader is not available for {fp}"
+            return (
+                f"error: no image reader is configured for {fp}; pass PillowImageReader "
+                "(pip install 'agent0-runtime[images]') as image_reader"
+            )
         return image_reader.read(fp, mime)
     want = limit if limit is not None and limit > 0 else DEFAULT_READ_LINES
     start = max(0, (offset or 1) - 1) if offset is not None else 0

@@ -82,7 +82,10 @@ def _http_stack() -> Any:
         import certifi
         import urllib3
     except ImportError as e:
-        raise RuntimeError("the fetch tool requires the web extra (urllib3 + certifi)") from e
+        raise RuntimeError(
+            "the fetch tool needs urllib3 and certifi; install the web extra: "
+            "pip install 'agent0-runtime[web]'"
+        ) from e
     return urllib3, certifi
 
 
@@ -261,12 +264,17 @@ def fetch(url: str, max_chars: int | None = None) -> str:
         downloaded = _download(url)
     except (TypeError, ValueError, _FetchError) as e:
         return f"error: {e}"
+    except RuntimeError as e:  # missing optional HTTP dependencies
+        return f"error: {e}"
 
     if _is_html(downloaded):
         try:
             text = _extract_html(downloaded, url)
         except ImportError:
-            return "error: trafilatura is not installed"
+            return (
+                "error: trafilatura is not installed; install the web extra: "
+                "pip install 'agent0-runtime[web]'"
+            )
         if not text:
             text = _plain_text(downloaded)
     elif _is_text(downloaded):

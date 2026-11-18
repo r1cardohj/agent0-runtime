@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import base64
 import io
+from functools import lru_cache
 from pathlib import Path
-
-from PIL import Image, ImageOps
+from typing import Any
 
 from .capabilities import MODEL_CAPABILITIES
 from .filesystem import ImageReader
@@ -80,7 +80,21 @@ def detect_mime(path: Path) -> str | None:
     return None
 
 
-def _encode(image: Image.Image, mime_type: str, quality: int = 85) -> bytes:
+@lru_cache(maxsize=1)
+def _pillow() -> tuple[Any, Any]:
+    """Import Pillow on demand so the core runtime has no image dependency."""
+
+    try:
+        from PIL import Image, ImageOps
+    except ImportError as e:
+        raise RuntimeError(
+            "image support needs Pillow; install the images extra: "
+            "pip install 'agent0-runtime[images]'"
+        ) from e
+    return Image, ImageOps
+
+
+def _encode(image: Any, mime_type: str, quality: int = 85) -> bytes:
     out = io.BytesIO()
     if mime_type == "image/jpeg":
         image.convert("RGB").save(out, format="JPEG", quality=quality, optimize=True)
@@ -98,6 +112,7 @@ def process_image(
 ) -> tuple[Attachment, list[str]] | None:
     """Normalize an image to a supported format and fit inline size limits."""
 
+    Image, ImageOps = _pillow()
     mime = base_mime(mime_type)
     hints: list[str] = []
     try:
@@ -154,7 +169,10 @@ class PillowImageReader(ImageReader):
             return ToolResult(f"error: {type(e).__name__}: {e}")
         if not data:
             return ToolResult(f"error: empty file: {path}")
-        processed = process_image(data, mime)
+        try:
+            processed = process_image(data, mime)
+        except RuntimeError as e:  # Pillow is an optional extra
+            return ToolResult(f"error: {e}")
         if processed is None:
             return ToolResult(
                 f"Read image file [{mime or 'unknown'}]\n"
