@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.2
+
 ### Added
 
 - `Agent.run(system=...)` (and `run_in_context`) writes the conversation's system
