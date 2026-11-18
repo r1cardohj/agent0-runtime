@@ -192,6 +192,11 @@ stray prompt later in the history is honoured on the wire and unprotected in the
 log. The runtime does not rewrite such a conversation: it logs a warning naming
 the positions and leaves the decision to the host.
 
+Plugins contribute guidance through `context.prompts.add(...)` rather than
+replacing the prompt; those fragments are appended after the host's base prompt
+only when the runtime writes a conversation's prompt, and a conversation's stored
+prompt is never rewritten to pick them up (see [Plugins](#plugins)).
+
 ## Tool registry
 
 `@tool` derives names, JSON schemas, required arguments, and descriptions from a
@@ -348,7 +353,8 @@ host; outcome classification lives in
 
 ## Plugins
 
-A plugin registers tools, backend factories, or observers during setup:
+A plugin registers tools, backend factories, observers, or prompt text during
+setup:
 
 ```python
 class MyPlugin:
@@ -357,10 +363,20 @@ class MyPlugin:
     def register(self, context):
         context.tools.register(make_my_tool())
         context.events.subscribe(log_event, kinds=["tool_finished"])
+        context.prompts.add("Use my_tool for X; never call it with an empty query.")
 
     async def close(self):  # optional
         ...
 ```
+
+`context.prompts.add(text)` contributes one paragraph of guidance. Fragments are
+joined in registration order after the host's base prompt when the runtime
+*writes* a conversation's prompt (a conversation with no system message, or a run
+that passes `system=`). They never rewrite a prompt a conversation already stores:
+if the stored prompt does not contain the current fragments, the run logs a
+warning and keeps history intact, because rewriting it would change the prompt
+prefix and invalidate its cache. Start a new conversation to pick up new
+fragments.
 
 Load trusted objects directly with `Agent(..., plugins=[MyPlugin()])`.
 

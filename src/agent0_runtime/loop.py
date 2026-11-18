@@ -13,7 +13,7 @@ from typing import Any, Protocol
 from .backend import BackendRegistry, ModelBackend, ModelRequest
 from .events import EventBus, EventEmitter, EventListener
 from .lifecycle import LifecycleHooks, run_with_lifecycle
-from .plugins import PluginContext, PluginManager
+from .plugins import PluginContext, PluginManager, PromptFragments
 from .session import RunContext, RuntimeSession
 from .tools import (
     _TOOL_ATTRIBUTE,
@@ -116,6 +116,23 @@ def _merge_attachments(message: Message, result: ToolResult) -> None:
 
 def _system_prompt_positions(messages: list[Message]) -> list[int]:
     return [index for index, message in enumerate(messages) if message.get("role") == "system"]
+
+
+def _stored_system_prompt(messages: list[Message]) -> str | None:
+    """The prompt a provider would send today: the last system message."""
+
+    for message in reversed(messages):
+        if message.get("role") == "system":
+            content = message.get("content")
+            return content if isinstance(content, str) else None
+    return None
+
+
+def _compose_system_prompt(base: str, fragments: str) -> str:
+    base = base.strip()
+    if not base:
+        return fragments
+    return f"{base}\n\n{fragments}" if fragments else base
 
 
 def _apply_system_prompt(messages: list[Message], prompt: str) -> bool:
@@ -339,6 +356,7 @@ class Agent:
         self.close_backend = close_backend
         self.tool_timeout = tool_timeout
         self.max_tool_output_chars = max_tool_output_chars
+        self.prompts = PromptFragments()
         self._closed = False
         self.plugins = PluginManager(
             PluginContext(
@@ -347,6 +365,7 @@ class Agent:
                 events=self.events,
                 lifecycle=self.lifecycle,
                 services=self.services,
+                prompts=self.prompts,
             )
         )
         for plugin in plugins:
@@ -507,7 +526,19 @@ class Agent:
         if system is not None:
             if not isinstance(system, str):
                 raise TypeError("system must be a string or None")
-            _apply_system_prompt(messages, system)
+            # The host owns the base prompt; plugin guidance still applies.
+            _apply_system_prompt(messages, _compose_system_prompt(system, self.prompts.render()))
+        elif fragments := self.prompts.render():
+            stored = _stored_system_prompt(messages)
+            if stored is None:
+                _apply_system_prompt(messages, fragments)
+            elif fragments not in stored:
+                # Never rewrite a conversation's prompt behind the host's back:
+                # that would change history and drop the prompt-cache prefix.
+                logger.warning(
+                    "plugin prompt fragments are not in this conversation's system prompt; "
+                    "keeping the stored prompt (start a new conversation to apply them)"
+                )
         elif (positions := _system_prompt_positions(messages)) not in ([], [0]):
             # Never rewrite a host's history behind its back; make the deviation
             # visible instead. Adapters send the last one, compaction protects

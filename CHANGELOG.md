@@ -8,6 +8,11 @@
   prompt: it lands in `messages[0]`, older system messages are removed so exactly
   one remains, and later runs of that session keep it. There is no Agent-level
   prompt, so an omitted `system` never touches a conversation's own prompt.
+- `PluginContext.prompts` (`PromptFragments.add(text)`) lets a plugin contribute
+  prompt guidance without replacing the host's prompt. Fragments are joined in
+  registration order when the runtime writes a conversation's prompt and are
+  never written into a conversation that already has one; that case logs a
+  warning instead of rewriting history.
 - A conversation whose system messages are not `[messages[0]]` logs a warning
   naming the positions: adapters send the last one while compaction protects only
   index 0, so the runtime reports the deviation instead of silently normalizing.

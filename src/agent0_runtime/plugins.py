@@ -18,6 +18,38 @@ PLUGIN_ENTRY_POINT = "agent0.plugins"
 
 
 @dataclass
+class PromptFragments:
+    """Ordered prompt text contributed by plugins.
+
+    A plugin describes how its tools should be used; the host still owns the base
+    prompt. Fragments are joined in registration order and appended after the
+    base when the runtime writes a conversation's prompt. They never rewrite a
+    prompt a conversation already stores, so history and prompt caching stay
+    stable.
+    """
+
+    _parts: list[str] = field(default_factory=list)
+
+    @property
+    def parts(self) -> tuple[str, ...]:
+        return tuple(self._parts)
+
+    def add(self, text: str) -> None:
+        """Contribute one fragment; blank text is ignored, non-strings rejected."""
+
+        if not isinstance(text, str):
+            raise TypeError("prompt fragment must be a string")
+        if text.strip():
+            self._parts.append(text.strip())
+
+    def render(self) -> str:
+        return "\n\n".join(self._parts)
+
+    def __bool__(self) -> bool:
+        return bool(self._parts)
+
+
+@dataclass
 class PluginContext:
     """Stable registration surface exposed to a plugin during application setup."""
 
@@ -26,6 +58,7 @@ class PluginContext:
     events: EventBus
     lifecycle: LifecycleHooks
     services: dict[str, Any] = field(default_factory=dict)
+    prompts: PromptFragments = field(default_factory=PromptFragments)
 
 
 @runtime_checkable

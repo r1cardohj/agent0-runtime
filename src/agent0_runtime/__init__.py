@@ -53,6 +53,7 @@ from .plugins import (
     PluginError,
     PluginInfo,
     PluginManager,
+    PromptFragments,
     discover_plugins,
 )
 from .providers import (
@@ -147,6 +148,7 @@ __all__ = [
     "PluginError",
     "PluginInfo",
     "PluginManager",
+    "PromptFragments",
     "PillowImageReader",
     "Recovery",
     "RunContext",
