@@ -69,14 +69,21 @@ await agent.close()
 ```
 
 `RunResult` contains `status`, `text`, `turns`, `run_id`, `finish_reason`,
-`stop_reason`, and the latest token usage. Interruption and backend failures are
-still exceptions, with corresponding terminal events emitted first.
+`stop_reason`, and `usage`, which is summed over every model round in the run;
+`usage_by_turn` keeps the per-round detail in order. Interruption and backend
+failures are still exceptions, with corresponding terminal events emitted first.
 
 Each `RuntimeEvent` has a `kind`, per-run sequence number, `run_id`, timestamp,
 optional model-turn number, and a transport-safe payload. Event kinds cover
 model/text/reasoning deltas, routing, usage, compaction, tool start/preview/end,
 and terminal turn states. `event.to_dict()` is suitable for a future JSON-RPC or
 WebSocket adapter. `on_event` may be synchronous or asynchronous.
+
+Observer failures never break a run: they go to the `agent0_runtime` logger and to
+a bounded `EventBus.errors` deque (`max_errors`, default 100), so a long-lived
+agent cannot accumulate them without limit. The runtime logs retries, failovers,
+compaction, and tool failures to the same logger tree and installs a
+`NullHandler`, so hosts see nothing until they configure logging.
 
 For custom backends, instantiate `agent0_runtime.Agent` directly. The required
 backend protocol is only `complete(request, events) -> ModelTurn`; `model`,
@@ -120,6 +127,29 @@ This factory installs `OpenAIResponsesBackend` and `ResponsesHistoryPolicy`.
 It defaults to `close_backend=False`; the host remains responsible for closing
 the injected client.
 
+## Generation settings
+
+`GenerationConfig` carries per-run or per-backend sampling and output settings.
+Every field is optional, so one backend default can be overridden per run:
+
+```python
+from agent0_runtime import Agent, GenerationConfig
+
+agent = Agent.from_openai(
+    client,
+    "deepseek-chat",
+    generation=GenerationConfig(temperature=0.2, max_output_tokens=4096),
+)
+result = await agent.run("summarize this", generation=GenerationConfig(temperature=0.0))
+```
+
+The run config is merged over the backend default: here `temperature=0.0` wins and
+`max_output_tokens=4096` is inherited. Unset fields are not sent at all. `extra`
+is merged last and verbatim, so provider-specific parameters (for example a
+`text` format object) reach the request without growing the neutral field list.
+A backend that does not understand generation settings may ignore them; the
+protocol still requires only `complete()`.
+
 ## Tool registry
 
 `@tool` derives names, JSON schemas, required arguments, and descriptions from a
@@ -161,6 +191,13 @@ Handlers receive a `ToolContext` and a decoded argument dictionary. They may be
 synchronous or asynchronous and return `str` or `ToolResult`. Synchronous
 handlers run in a worker thread so they do not block the event loop.
 
+`Agent(tool_timeout=..., max_tool_output_chars=...)` bounds one handler call and
+caps what enters history, so a hung or chatty tool cannot stall a run or blow up
+the next prompt. Defaults: no timeout, 64,000 characters per result. A timed-out
+handler returns `error: <name> timed out after Ns`; an oversized result is
+truncated with a `[truncated N chars]` marker. Attachments and private state
+survive truncation. Pass `None` to disable either limit.
+
 ## Generic built-in tools
 
 The runtime includes provider-neutral `read`, `write`, `edit`, `bash`, `fetch`,
@@ -183,6 +220,34 @@ credential resolvers or alternative implementations. Filesystem/shell tools requ
 a workspace only when selected by the model, so an assistant with no workspace can
 still use its own tools. Hosts supply their own credential resolvers without
 implementing the search transport itself.
+
+`PillowImageReader` needs the `images` extra and `fetch` needs the `web` extra;
+without them the tool returns an install hint instead of failing at import.
+`search` uses only the standard library.
+
+### Workspace policy
+
+`WorkspacePolicy` confines the filesystem tools to one root and can make it
+read-only. It is injected through `BuiltinToolsConfig`, so a host never has to
+fork the tools to sandbox them:
+
+```python
+from pathlib import Path
+from agent0_runtime import BuiltinToolsConfig, WorkspacePolicy, create_builtin_registry
+
+registry = create_builtin_registry(
+    BuiltinToolsConfig(policy=WorkspacePolicy(root=Path("/srv/workspace"), read_only=True))
+)
+```
+
+Paths are resolved through symlinks and refused when they leave the root, so
+`../secrets` and `/etc/passwd` become `error: path escapes the workspace` tool
+results. `read_only=True` rejects `write`/`edit` and disables `bash` in the
+registry. `allow_outside=True` opts back into unrestricted paths.
+
+`bash` runs in the host process and is **not** confined by this policy: use a
+container or an OS sandbox when shell confinement matters. Without a policy the
+tools keep their previous permissive behaviour.
 
 ## Sessions and stores
 
