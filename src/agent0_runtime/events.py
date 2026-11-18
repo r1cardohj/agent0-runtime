@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 from collections.abc import Awaitable, Callable, Iterable
 from contextlib import suppress
 from dataclasses import dataclass, field
@@ -79,16 +80,18 @@ ErrorListener = Callable[[ListenerError], Any]
 class EventBus:
     """Process-local subscriptions; each run gets an independent sequence/ID.
 
-    Observer failures are isolated from the agent loop and recorded in
-    ``errors``. An optional error listener can forward them to a host logger.
+    Observer failures are isolated from the agent loop and recorded in the
+    bounded ``errors`` deque (newest kept), so a long-lived agent cannot grow
+    without limit. An optional error listener can forward them to a host logger.
     Event delivery is ordered and backpressured: an async GUI subscriber must
     finish handling one event before the next is delivered to that subscriber.
     """
 
-    def __init__(self, *, on_error: ErrorListener | None = None) -> None:
+    def __init__(self, *, on_error: ErrorListener | None = None, max_errors: int = 100) -> None:
         self._subscriptions: list[_Subscription] = []
         self._on_error = on_error
-        self.errors: list[ListenerError] = []
+        self.max_errors = max(1, int(max_errors))
+        self.errors: deque[ListenerError] = deque(maxlen=self.max_errors)
 
     def subscribe(
         self, listener: EventListener, *, kinds: Iterable[RuntimeEventKind] | None = None

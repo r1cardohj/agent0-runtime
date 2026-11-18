@@ -144,7 +144,11 @@ class RunStatus(str, Enum):
 
 @dataclass(frozen=True)
 class RunResult:
-    """The typed outcome of an agent run."""
+    """The typed outcome of an agent run.
+
+    ``usage`` is summed over every model round in the run, so a host can report
+    one cost per run; ``usage_by_turn`` keeps the per-round detail in order.
+    """
 
     text: str
     status: RunStatus
@@ -154,6 +158,7 @@ class RunResult:
     finish_reason: str | None = None
     stop_reason: str | None = None
     usage: dict[str, int] | None = None
+    usage_by_turn: tuple[dict[str, int], ...] = ()
 
 
 class AgentInterrupted(Exception):

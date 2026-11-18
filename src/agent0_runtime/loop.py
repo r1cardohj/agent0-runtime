@@ -65,6 +65,20 @@ def _estimate(messages: list[Message]) -> int:
     return chars // 4 + 1
 
 
+def _accumulate_usage(
+    total: dict[str, int] | None, turn: dict[str, int] | None
+) -> dict[str, int] | None:
+    """Sum one model round into the run total, ignoring non-integer fields."""
+
+    if not turn:
+        return total
+    merged = dict(total or {})
+    for key, value in turn.items():
+        if isinstance(value, int) and not isinstance(value, bool):
+            merged[key] = merged.get(key, 0) + value
+    return merged
+
+
 def _last_user_question(messages: list[Message]) -> str | None:
     for message in reversed(messages):
         content = message.get("content")
@@ -447,7 +461,8 @@ class Agent:
             raise ValueError("max_turns must be at least 1")
         messages.append({"role": "user", "content": task})
         last_prompt = prompt_tokens
-        last_usage: dict[str, int] | None = None
+        total_usage: dict[str, int] | None = None
+        usage_by_turn: list[dict[str, int]] = []
         finish_reason: str | None = None
         turns = recovery_attempts = 0
         pending: list[ToolCall] = []
@@ -506,7 +521,8 @@ class Agent:
                 recovery_attempts = 0
                 turns += 1
                 if turn.usage:
-                    last_usage = turn.usage
+                    total_usage = _accumulate_usage(total_usage, turn.usage)
+                    usage_by_turn.append(dict(turn.usage))
                     last_prompt = turn.usage.get("prompt_tokens", last_prompt)
                     await events.emit("usage", turn=turns, usage=turn.usage)
                 finish_reason = turn.finish_reason
@@ -523,7 +539,8 @@ class Agent:
                         run_id=events.run_id,
                         session_id=session_id,
                         finish_reason=finish_reason,
-                        usage=last_usage,
+                        usage=total_usage,
+                        usage_by_turn=tuple(usage_by_turn),
                     )
                     await events.emit(
                         "turn_succeeded",
@@ -569,7 +586,8 @@ class Agent:
                 session_id=session_id,
                 finish_reason=finish_reason,
                 stop_reason="max_turns",
-                usage=last_usage,
+                usage=total_usage,
+                usage_by_turn=tuple(usage_by_turn),
             )
             await events.emit("turn_blocked", turn=turns, reason="max_turns", text=result.text)
             return result
