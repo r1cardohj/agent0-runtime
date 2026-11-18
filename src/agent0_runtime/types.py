@@ -41,6 +41,50 @@ class ToolCall:
         }
 
 
+@dataclass(frozen=True)
+class GenerationConfig:
+    """Optional sampling/output knobs for one run or one backend.
+
+    Every field defaults to ``None``, meaning "leave the decision to the backend
+    or the endpoint". A per-run config is merged over the backend default, so a
+    host can set a baseline once and override one field per run.
+
+    ``extra`` is the escape hatch for provider-specific parameters: it is merged
+    last, verbatim, into the request the backend sends.
+    """
+
+    temperature: float | None = None
+    max_output_tokens: int | None = None
+    tool_choice: str | dict[str, Any] | None = None
+    parallel_tool_calls: bool | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+    def merged_over(self, fallback: GenerationConfig | None) -> GenerationConfig:
+        """Fill unset fields from ``fallback``; ``extra`` keys are overlaid."""
+
+        if fallback is None:
+            return self
+        return GenerationConfig(
+            temperature=(
+                self.temperature if self.temperature is not None else fallback.temperature
+            ),
+            max_output_tokens=(
+                self.max_output_tokens
+                if self.max_output_tokens is not None
+                else fallback.max_output_tokens
+            ),
+            tool_choice=(
+                self.tool_choice if self.tool_choice is not None else fallback.tool_choice
+            ),
+            parallel_tool_calls=(
+                self.parallel_tool_calls
+                if self.parallel_tool_calls is not None
+                else fallback.parallel_tool_calls
+            ),
+            extra={**fallback.extra, **self.extra},
+        )
+
+
 @dataclass
 class ModelTurn:
     """One completed model round, normalized across backend implementations.

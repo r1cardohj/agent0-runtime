@@ -27,7 +27,7 @@ from .responses import (
     response_tools,
     response_usage,
 )
-from .types import AgentInterrupted, ModelTurn, ToolCall
+from .types import AgentInterrupted, GenerationConfig, ModelTurn, ToolCall
 
 RETRY_STATUS = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
 FAILOVER_STATUS = frozenset({401, 403, 404})
@@ -238,6 +238,7 @@ def completion_kwargs(
     tools: list[dict[str, Any]] | None = None,
     *,
     vision: bool = True,
+    generation: GenerationConfig | None = None,
 ) -> dict[str, Any]:
     inputs, instructions = request_input(messages, provider_id, vision=vision)
     kwargs: dict[str, Any] = {
@@ -248,9 +249,21 @@ def completion_kwargs(
     }
     if instructions is not None:
         kwargs["instructions"] = instructions
+    if generation is not None:
+        if generation.temperature is not None:
+            kwargs["temperature"] = generation.temperature
+        if generation.max_output_tokens is not None:
+            kwargs["max_output_tokens"] = generation.max_output_tokens
+        if generation.tool_choice is not None:
+            kwargs["tool_choice"] = generation.tool_choice
+        if generation.parallel_tool_calls is not None:
+            kwargs["parallel_tool_calls"] = generation.parallel_tool_calls
     if provider_id == "deepseek" and portable_history(messages, provider_id):
         # DeepSeek rejects thinking-mode replay with portable legacy history.
         kwargs["reasoning"] = {"effort": "none"}
+    if generation is not None and generation.extra:
+        # Escape hatch: provider-specific parameters win over neutral fields.
+        kwargs.update(generation.extra)
     return kwargs
 
 
@@ -299,11 +312,14 @@ async def stream_response_completion(
     vision: bool = True,
     retry_sleeps: tuple[float, ...] = RETRY_SLEEPS,
     close_timeout: float = STREAM_CLOSE_TIMEOUT,
+    generation: GenerationConfig | None = None,
 ) -> ResponseTurn:
     try:
         return await stream_response_with_retries(
             client,
-            completion_kwargs(model, messages, provider_id, tools, vision=vision),
+            completion_kwargs(
+                model, messages, provider_id, tools, vision=vision, generation=generation
+            ),
             on_delta=on_delta,
             on_thinking=on_thinking,
             on_answer_to_thinking=on_answer_to_thinking,
@@ -344,6 +360,7 @@ class OpenAIResponsesBackend:
         supports_vision: Callable[[str | None], bool] | None = None,
         retry_sleeps: tuple[float, ...] = RETRY_SLEEPS,
         stream_close_timeout: float = STREAM_CLOSE_TIMEOUT,
+        generation: GenerationConfig | None = None,
     ) -> None:
         self.client = client
         self._model = model
@@ -352,6 +369,7 @@ class OpenAIResponsesBackend:
         self._supports_vision = supports_vision or _default_vision_support
         self.retry_sleeps = retry_sleeps
         self.stream_close_timeout = stream_close_timeout
+        self.generation = generation
 
     @property
     def model(self) -> str:
@@ -429,5 +447,10 @@ class OpenAIResponsesBackend:
             vision=self._supports_vision(self._model),
             retry_sleeps=self.retry_sleeps,
             close_timeout=self.stream_close_timeout,
+            generation=(
+                request.generation.merged_over(self.generation)
+                if request.generation is not None
+                else self.generation
+            ),
         )
         return self.model_turn(turn, provider_id=self._provider_id, model=self._model)

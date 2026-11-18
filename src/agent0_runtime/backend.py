@@ -10,7 +10,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from .types import CancellationToken, Message, ModelTurn
+from .types import CancellationToken, GenerationConfig, Message, ModelTurn
 
 if TYPE_CHECKING:
     from .events import EventEmitter
@@ -25,6 +25,7 @@ class ModelRequest:
     run_id: str
     turn: int = 1
     cancellation: CancellationToken | None = None
+    generation: GenerationConfig | None = None
 
 
 @runtime_checkable

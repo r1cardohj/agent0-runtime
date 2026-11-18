@@ -26,6 +26,7 @@ from .types import (
     TOOL_ATTACHMENTS_KEY,
     AgentInterrupted,
     CancellationToken,
+    GenerationConfig,
     Message,
     Recovery,
     RunResult,
@@ -229,12 +230,14 @@ class Agent:
         supports_vision: Callable[[str | None], bool] | None = None,
         retry_sleeps: tuple[float, ...] | None = None,
         stream_close_timeout: float | None = None,
+        generation: GenerationConfig | None = None,
         **runtime_options: Any,
     ) -> Agent:
         """Assemble the default Responses backend for an existing host client.
 
         The host owns an injected client by default. ``close_backend=True``
-        transfers backend/client cleanup to this Agent.
+        transfers backend/client cleanup to this Agent. ``generation`` sets the
+        backend default that each run's config is merged over.
         """
 
         from .history import ResponsesHistoryPolicy
@@ -248,6 +251,8 @@ class Agent:
             backend_options["retry_sleeps"] = retry_sleeps
         if stream_close_timeout is not None:
             backend_options["stream_close_timeout"] = stream_close_timeout
+        if generation is not None:
+            backend_options["generation"] = generation
         backend = OpenAIResponsesBackend(
             client,
             model,
@@ -341,12 +346,14 @@ class Agent:
         on_event: EventListener | None = None,
         session: Any | None = None,
         run_id: str = "",
+        generation: GenerationConfig | None = None,
     ) -> RunResult:
         """Run one task in a session, optionally wrapping it in lifecycle hooks.
 
         ``cwd`` is the legacy filesystem spelling of ``workspace``. Non-filesystem
         agents may omit both; filesystem/shell tools then report a clear error if
-        a model nevertheless selects them.
+        a model nevertheless selects them. ``generation`` overrides the backend's
+        default sampling/output settings for this run only.
         """
 
         runtime_session = session if isinstance(session, RuntimeSession) else None
@@ -381,6 +388,7 @@ class Agent:
             context_limit=context_limit,
             prompt_tokens=prompt_tokens,
             on_event=on_event,
+            generation=generation,
         )
         if session is not None:
             return await run_with_lifecycle(
@@ -397,6 +405,7 @@ class Agent:
         context_limit: int | None = None,
         prompt_tokens: int | None = None,
         on_event: EventListener | None = None,
+        generation: GenerationConfig | None = None,
     ) -> RunResult:
         """Run one task using an explicit per-run context."""
 
@@ -416,6 +425,7 @@ class Agent:
             cancellation=context.cancellation,
             services=services,
             events=events,
+            generation=generation,
         )
 
     async def _run(
@@ -431,6 +441,7 @@ class Agent:
         cancellation: CancellationToken | None,
         services: Mapping[str, Any],
         events: EventEmitter,
+        generation: GenerationConfig | None = None,
     ) -> RunResult:
         if max_turns < 1:
             raise ValueError("max_turns must be at least 1")
@@ -471,6 +482,7 @@ class Agent:
                             run_id=events.run_id,
                             turn=turns + 1,
                             cancellation=cancellation,
+                            generation=generation,
                         ),
                         events,
                     )

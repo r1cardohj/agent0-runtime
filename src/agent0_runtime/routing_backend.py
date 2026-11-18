@@ -14,7 +14,7 @@ from agent0_runtime.openai_backend import (
     stream_response_with_retries,
 )
 from agent0_runtime.responses import ResponseTurn
-from agent0_runtime.types import ModelTurn
+from agent0_runtime.types import GenerationConfig, ModelTurn
 
 from .images import supports_vision
 from .routing import FailoverRoute, RouteTarget
@@ -33,6 +33,7 @@ async def stream_response_failover(
     supports_model_vision=supports_vision,
     retry_sleeps=(0.5, 1.5, 3.0),
     close_timeout=2.0,
+    generation: GenerationConfig | None = None,
 ) -> tuple[ResponseTurn, RouteTarget]:
     """Replay only silent failed requests; never duplicate partial output."""
 
@@ -47,6 +48,7 @@ async def stream_response_failover(
                     target.provider_id,
                     tools,
                     vision=supports_model_vision(target.model),
+                    generation=generation,
                 ),
                 on_delta=on_delta,
                 on_thinking=on_thinking,
@@ -78,6 +80,7 @@ class RoutedResponsesBackend(OpenAIResponsesBackend):
         on_route=None,
         retry_sleeps=(0.5, 1.5, 3.0),
         stream_close_timeout=2.0,
+        generation: GenerationConfig | None = None,
     ) -> None:
         super().__init__(
             client,
@@ -85,6 +88,7 @@ class RoutedResponsesBackend(OpenAIResponsesBackend):
             supports_vision=supports_vision,
             retry_sleeps=retry_sleeps,
             stream_close_timeout=stream_close_timeout,
+            generation=generation,
         )
         self.route = route
         self._provider_id = provider_id
@@ -154,6 +158,11 @@ class RoutedResponsesBackend(OpenAIResponsesBackend):
             supports_model_vision=self._supports_vision,
             retry_sleeps=self.retry_sleeps,
             close_timeout=self.stream_close_timeout,
+            generation=(
+                request.generation.merged_over(self.generation)
+                if request.generation is not None
+                else self.generation
+            ),
         )
         return self.model_turn(turn, provider_id=target.provider_id, model=target.model)
 
