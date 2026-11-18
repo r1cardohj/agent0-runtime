@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.3
+
 ### Added
 
 - `SteerInbox` for Cursor-style soft follow-ups during an active `Agent.run`:
