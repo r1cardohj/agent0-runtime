@@ -16,6 +16,7 @@ from .plugins import PluginContext, PluginManager
 from .session import RunContext, RuntimeSession
 from .tools import (
     _TOOL_ATTRIBUTE,
+    DEFAULT_MAX_TOOL_OUTPUT_CHARS,
     Tool,
     ToolContext,
     ToolExecutor,
@@ -295,6 +296,8 @@ class Agent:
         close_backend: bool = True,
         plugins: Iterable[Any] = (),
         plugin_names: Iterable[str] = (),
+        tool_timeout: float | None = None,
+        max_tool_output_chars: int | None = DEFAULT_MAX_TOOL_OUTPUT_CHARS,
     ) -> None:
         self.backend = backend
         self.tools = tools if tools is not None else ToolRegistry()
@@ -304,6 +307,8 @@ class Agent:
         self.backends = backends if backends is not None else BackendRegistry()
         self.services = dict(services or {})
         self.close_backend = close_backend
+        self.tool_timeout = tool_timeout
+        self.max_tool_output_chars = max_tool_output_chars
         self._closed = False
         self.plugins = PluginManager(
             PluginContext(
@@ -615,4 +620,8 @@ class Agent:
     def executor(self) -> ToolExecutor:
         # Constructing is cheap and keeps the public registry replaceable by an
         # embedder before a run, without a second stale registry reference.
-        return ToolExecutor(self.tools)
+        return ToolExecutor(
+            self.tools,
+            timeout=self.tool_timeout,
+            max_output_chars=self.max_tool_output_chars,
+        )

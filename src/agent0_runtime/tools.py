@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import logging
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from functools import wraps
@@ -19,6 +20,9 @@ ToolReturn: TypeAlias = str | ToolResult
 ToolHandler: TypeAlias = Callable[
     ["ToolContext", dict[str, Any]], ToolReturn | Awaitable[ToolReturn]
 ]
+
+logger = logging.getLogger(__name__)
+DEFAULT_MAX_TOOL_OUTPUT_CHARS = 64_000
 
 
 @dataclass(frozen=True)
@@ -234,10 +238,38 @@ class ToolExecution:
 
 
 class ToolExecutor:
-    """Validate arguments, execute sync/async handlers, and emit tool events."""
+    """Validate arguments, execute sync/async handlers, and emit tool events.
 
-    def __init__(self, registry: ToolRegistry) -> None:
+    ``timeout`` bounds one handler call (a cancelled sync handler keeps running
+    in its worker thread, so treat it as best effort). ``max_output_chars`` caps
+    what enters history; ``None`` disables either limit.
+    """
+
+    def __init__(
+        self,
+        registry: ToolRegistry,
+        *,
+        timeout: float | None = None,
+        max_output_chars: int | None = DEFAULT_MAX_TOOL_OUTPUT_CHARS,
+    ) -> None:
         self.registry = registry
+        self.timeout = timeout
+        self.max_output_chars = max_output_chars
+
+    async def _call(self, tool: Tool, context: ToolContext, args: dict[str, Any]) -> Any:
+        if inspect.iscoroutinefunction(tool.handler):
+            return await tool.handler(context, args)
+        returned = await asyncio.to_thread(tool.handler, context, args)
+        if inspect.isawaitable(returned):
+            return await returned
+        return returned
+
+    def _limit(self, result: ToolResult) -> ToolResult:
+        limit = self.max_output_chars
+        if limit is None or len(result.text) <= limit:
+            return result
+        dropped = len(result.text) - limit
+        return replace(result, text=f"{result.text[:limit]}\n...[truncated {dropped} chars]")
 
     async def execute(
         self,
@@ -294,24 +326,29 @@ class ToolExecutor:
         previews: list[str] = []
         local = replace(context, preview=previews.append)
         try:
-            if inspect.iscoroutinefunction(tool.handler):
-                returned = await tool.handler(local, args)
-            else:
-                returned = await asyncio.to_thread(tool.handler, local, args)
-                if inspect.isawaitable(returned):
-                    returned = await returned
+            invocation = self._call(tool, local, args)
+            returned = (
+                await invocation
+                if self.timeout is None
+                else await asyncio.wait_for(invocation, timeout=self.timeout)
+            )
             if isinstance(returned, ToolResult):
                 result = returned
             elif isinstance(returned, str):
                 result = ToolResult(returned)
             else:
                 raise TypeError("tool handler must return str or ToolResult")
+        except asyncio.TimeoutError:
+            logger.warning("tool %s timed out after %ss", call.name, self.timeout)
+            result = ToolResult(f"error: {call.name} timed out after {self.timeout:g}s")
         except (AgentInterrupted, asyncio.CancelledError, KeyboardInterrupt):
             raise
         except TypeError as exc:
             result = ToolResult(f"error: bad args for {call.name}: {exc}")
         except Exception as exc:
+            logger.warning("tool %s failed: %s", call.name, type(exc).__name__)
             result = ToolResult(f"error: {type(exc).__name__}: {exc}")
+        result = self._limit(result)
 
         for preview in previews:
             await events.emit(

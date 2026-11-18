@@ -67,7 +67,15 @@ from .routing_backend import RoutedResponsesBackend, stream_response_failover
 from .search import SearchProvider
 from .session import MemorySessionStore, RunContext, RuntimeSession, SessionStore
 from .shell import Shell
-from .tools import Tool, ToolContext, ToolExecution, ToolExecutor, ToolRegistry, tool
+from .tools import (
+    DEFAULT_MAX_TOOL_OUTPUT_CHARS,
+    Tool,
+    ToolContext,
+    ToolExecution,
+    ToolExecutor,
+    ToolRegistry,
+    tool,
+)
 from .types import (
     TOOL_ATTACHMENTS_KEY,
     AgentInterrupted,
@@ -97,6 +105,7 @@ __all__ = [
     "CancellationToken",
     "Credential",
     "DEFAULT_MAX_TURNS",
+    "DEFAULT_MAX_TOOL_OUTPUT_CHARS",
     "DeepSeekSearchProvider",
     "EventBus",
     "EventEmitter",
