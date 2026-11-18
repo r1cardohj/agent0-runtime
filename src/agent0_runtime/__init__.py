@@ -4,6 +4,8 @@ The backend/tool protocols, structured events, sessions, lifecycle, and plugins
 are independent of terminal interfaces and application-owned policy.
 """
 
+import logging
+
 __version__ = "0.1.0"
 
 from .backend import BackendRegistry, ModelBackend, ModelInfo, ModelRequest
@@ -92,6 +94,10 @@ from .types import (
     new_run_id,
 )
 from .web_search import DeepSeekSearchProvider
+
+# Library default: stay silent unless the embedding application configures
+# logging for the "agent0_runtime" logger tree.
+logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 __all__ = [
     "Agent",

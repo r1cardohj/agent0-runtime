@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import math
 from collections.abc import Iterable
 from contextlib import suppress
@@ -16,6 +17,8 @@ from agent0_runtime.capabilities import MODEL_CAPABILITIES, ModelCapability
 
 from .providers import Credential, ProviderSpec, list_providers
 from .responses import IMAGES_KEY, output_text, plain_item
+
+logger = logging.getLogger(__name__)
 
 AUTO_REF = "auto"
 SCORE_TIMEOUT = 5.0
@@ -118,9 +121,13 @@ class FailoverRoute:
         except Exception as e:  # scoring is an optimization, never a task SPOF
             self._active = _fallback_order(eligible, previous)
             self.selection = RouteSelection("default", {}, scorer.ref, type(e).__name__)
+            logger.warning(
+                "auto routing scorer failed (%s); using fallback order", type(e).__name__
+            )
             return
         self._active = _scored_order(eligible, previous, scores)
         self.selection = RouteSelection(intent, scores, scorer.ref)
+        logger.info("auto routing picked %s for intent %s", self._active[0].ref, intent)
 
     async def close(self) -> None:
         seen: set[int] = set()

@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections import deque
 from collections.abc import Awaitable, Callable, Iterable
 from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Literal, TypeAlias
+
+logger = logging.getLogger(__name__)
 
 RuntimeEventKind = Literal[
     "turn_started",
@@ -122,6 +125,7 @@ class EventBus:
             except Exception as error:  # observers must not break a model/tool round
                 failure = ListenerError(error, event, subscription.listener)
                 self.errors.append(failure)
+                logger.warning("event listener failed on %s: %s", event.kind, type(error).__name__)
                 if self._on_error is not None:
                     # Diagnostics are observers too; never recursively fail a run.
                     with suppress(Exception):

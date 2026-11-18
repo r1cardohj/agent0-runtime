@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import logging
 import os
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
@@ -37,6 +38,7 @@ from .types import (
     new_run_id,
 )
 
+logger = logging.getLogger(__name__)
 DEFAULT_MAX_TURNS = 200
 
 
@@ -492,6 +494,7 @@ class Agent:
                     if changed:
                         messages[:] = new_messages
                         last_prompt = None
+                        logger.info("compacted history: %s messages changed", changed)
                         await events.emit("compacted", changed=changed, aggressive=False)
                 await events.emit("model_started", turn=turns + 1)
                 try:
@@ -519,6 +522,11 @@ class Agent:
                         raise
                     messages[:] = recovery.messages
                     last_prompt = None
+                    logger.warning(
+                        "model request failed (%s); retrying with %s compacted messages",
+                        type(error).__name__,
+                        recovery.compacted,
+                    )
                     if recovery.compacted:
                         await events.emit("compacted", changed=recovery.compacted, aggressive=True)
                     continue
@@ -594,6 +602,7 @@ class Agent:
                 usage=total_usage,
                 usage_by_turn=tuple(usage_by_turn),
             )
+            logger.warning("run %s hit max_turns=%s", events.run_id, max_turns)
             await events.emit("turn_blocked", turn=turns, reason="max_turns", text=result.text)
             return result
         except AgentInterrupted as error:

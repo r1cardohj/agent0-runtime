@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import logging
 import sys
 from collections.abc import Callable
 from contextlib import suppress
@@ -28,6 +29,8 @@ from .responses import (
     response_usage,
 )
 from .types import AgentInterrupted, GenerationConfig, ModelTurn, ToolCall
+
+logger = logging.getLogger(__name__)
 
 RETRY_STATUS = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
 FAILOVER_STATUS = frozenset({401, 403, 404})
@@ -294,6 +297,14 @@ async def stream_response_with_retries(
         except RetryableResponseError as e:
             if attempt == len(retry_sleeps) or not is_retryable_response_error(e.cause):
                 raise
+            logger.warning(
+                "retrying %s request after %s (attempt %s/%s)",
+                kwargs.get("model"),
+                type(e.cause).__name__,
+                attempt + 1,
+                len(retry_sleeps) + 1,
+                exc_info=logger.isEnabledFor(logging.DEBUG),
+            )
             await asyncio.sleep(retry_sleeps[attempt])
     raise AssertionError("unreachable")  # pragma: no cover
 
