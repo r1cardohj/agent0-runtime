@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Added
+
+- `Agent.run(system=...)` (and `run_in_context`) writes the conversation's system
+  prompt: it lands in `messages[0]`, older system messages are removed so exactly
+  one remains, and later runs of that session keep it. There is no Agent-level
+  prompt, so an omitted `system` never touches a conversation's own prompt.
+
 ## 0.1.1
 
 ### Added

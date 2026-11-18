@@ -114,6 +114,25 @@ def _merge_attachments(message: Message, result: ToolResult) -> None:
         message[TOOL_ATTACHMENTS_KEY] = [block.to_dict() for block in result.attachments]
 
 
+def _apply_system_prompt(messages: list[Message], prompt: str) -> bool:
+    """Put ``prompt`` at ``messages[0]``, leaving exactly one system message.
+
+    Every provider adapter reads the system prompt from a single leading
+    message (``responses.request_input`` turns it into ``instructions``), so an
+    override also removes any older system messages instead of stacking them.
+    """
+
+    if not prompt:
+        return False
+    existing = [index for index, m in enumerate(messages) if m.get("role") == "system"]
+    if existing == [0] and messages[0].get("content") == prompt:
+        return False
+    for index in reversed(existing):
+        messages.pop(index)
+    messages.insert(0, {"role": "system", "content": prompt})
+    return True
+
+
 def _visible_tool_candidates(frame: Any | None) -> list[Tool]:
     """Collect uniquely identified decorated tools visible from the caller stack."""
 
@@ -163,6 +182,9 @@ class Agent:
     Backend/session implementations decide whether they support concurrent runs.
     Event subscription and tool/plugin registration are instance-scoped, while
     run IDs, event sequences, cancellation tokens, and outcomes are per run.
+
+    A conversation's system prompt is its first message, not Agent state: it is
+    written by the host (or by ``run(system=...)``) and travels with the session.
     """
 
     @classmethod
@@ -368,6 +390,7 @@ class Agent:
         session: Any | None = None,
         run_id: str = "",
         generation: GenerationConfig | None = None,
+        system: str | None = None,
     ) -> RunResult:
         """Run one task in a session, optionally wrapping it in lifecycle hooks.
 
@@ -375,6 +398,11 @@ class Agent:
         agents may omit both; filesystem/shell tools then report a clear error if
         a model nevertheless selects them. ``generation`` overrides the backend's
         default sampling/output settings for this run only.
+
+        ``system`` sets the conversation's prompt: it is written to
+        ``messages[0]``, older system messages are dropped, and later runs of that
+        session keep it. There is no Agent-level prompt to fall back to, so an
+        omitted ``system`` leaves the conversation's own prompt untouched.
         """
 
         runtime_session = session if isinstance(session, RuntimeSession) else None
@@ -410,6 +438,7 @@ class Agent:
             prompt_tokens=prompt_tokens,
             on_event=on_event,
             generation=generation,
+            system=system,
         )
         if session is not None:
             return await run_with_lifecycle(
@@ -427,6 +456,7 @@ class Agent:
         prompt_tokens: int | None = None,
         on_event: EventListener | None = None,
         generation: GenerationConfig | None = None,
+        system: str | None = None,
     ) -> RunResult:
         """Run one task using an explicit per-run context."""
 
@@ -447,6 +477,7 @@ class Agent:
             services=services,
             events=events,
             generation=generation,
+            system=system,
         )
 
     async def _run(
@@ -463,9 +494,14 @@ class Agent:
         services: Mapping[str, Any],
         events: EventEmitter,
         generation: GenerationConfig | None = None,
+        system: str | None = None,
     ) -> RunResult:
         if max_turns < 1:
             raise ValueError("max_turns must be at least 1")
+        if system is not None:
+            if not isinstance(system, str):
+                raise TypeError("system must be a string or None")
+            _apply_system_prompt(messages, system)
         messages.append({"role": "user", "content": task})
         last_prompt = prompt_tokens
         total_usage: dict[str, int] | None = None

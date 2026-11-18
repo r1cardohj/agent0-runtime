@@ -150,6 +150,41 @@ is merged last and verbatim, so provider-specific parameters (for example a
 A backend that does not understand generation settings may ignore them; the
 protocol still requires only `complete()`.
 
+## System prompts
+
+A conversation's system prompt is its first message. It is data, not Agent
+state, so it survives a session, compaction, and a provider switch, and each
+provider adapter maps it itself (`responses.request_input` turns it into the
+Responses `instructions` field instead of a conversation item):
+
+```python
+from agent0_runtime import RuntimeSession
+
+session = RuntimeSession(
+    id="assistant-1",
+    messages=[{"role": "system", "content": "You are terse."}],
+)
+result = await agent.run("hello", session=session)
+```
+
+Hosts that want the runtime to write it can pass `run(system=...)`. That is one
+rule with no fallback: the string becomes `messages[0]`, older system messages
+are removed so exactly one remains, and later runs of the same session keep it.
+Omit it and the conversation's own prompt is left untouched, so a resumed
+session keeps whatever it stored.
+
+```python
+await agent.run("hi", session=session, system="You are terse.")   # insert
+await agent.run("again", session=session, system="Be formal.")   # replace
+await agent.run("third", session=session)                         # still "Be formal."
+```
+
+There is deliberately no `Agent(system_prompt=...)`: the Agent is reusable across
+conversations, so a prompt on it would be a second source of truth next to
+`messages[0]` that silently loses to whichever prompt the session already holds.
+Read or change the effective prompt where the conversation lives:
+`session.messages[0]["content"]`.
+
 ## Tool registry
 
 `@tool` derives names, JSON schemas, required arguments, and descriptions from a
