@@ -28,7 +28,7 @@ from .events import (
     RuntimeEvent,
     RuntimeEventKind,
 )
-from .filesystem import ImageReader, VisionSupport
+from .filesystem import ImageReader, VisionSupport, WorkspacePolicy
 from .history import ResponsesHistoryPolicy
 from .images import PillowImageReader, supports_vision
 from .lifecycle import (
@@ -165,6 +165,7 @@ __all__ = [
     "ToolRegistry",
     "ToolResult",
     "VisionSupport",
+    "WorkspacePolicy",
     "build_auto_route",
     "create_builtin_registry",
     "default_model_for",

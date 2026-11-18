@@ -8,7 +8,14 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from . import web_fetch, web_search
-from .filesystem import ImageReader, VisionSupport, edit_file, read_file, write_file
+from .filesystem import (
+    ImageReader,
+    VisionSupport,
+    WorkspacePolicy,
+    edit_file,
+    read_file,
+    write_file,
+)
 from .search import SearchProvider
 from .shell import Shell, resolve_shell, run_shell
 from .tools import Tool, ToolContext, ToolRegistry
@@ -27,6 +34,7 @@ class BuiltinToolsConfig:
     image_reader: ImageReader | None = None
     supports_vision: VisionSupport | None = None
     search_provider: SearchProvider | None = None
+    policy: WorkspacePolicy | None = None
 
 
 def _fn(name: str, desc: str, props: dict[str, Any], required: list[str]) -> dict[str, Any]:
@@ -135,6 +143,7 @@ def create_builtin_registry(config: BuiltinToolsConfig | None = None) -> ToolReg
             model=context.model,
             image_reader=config.image_reader,
             supports_vision=config.supports_vision,
+            policy=config.policy,
         )
 
     def write(context: ToolContext, args: dict[str, Any]) -> str:
@@ -143,6 +152,7 @@ def create_builtin_registry(config: BuiltinToolsConfig | None = None) -> ToolReg
             str(args.get("path") or ""),
             str(args.get("content") or ""),
             on_preview=context.preview,
+            policy=config.policy,
         )
 
     def edit(context: ToolContext, args: dict[str, Any]) -> str:
@@ -152,9 +162,12 @@ def create_builtin_registry(config: BuiltinToolsConfig | None = None) -> ToolReg
             str(args.get("path") or ""),
             edits if isinstance(edits, list) else [],
             on_preview=context.preview,
+            policy=config.policy,
         )
 
     def bash(context: ToolContext, args: dict[str, Any]) -> str:
+        if config.policy is not None and config.policy.read_only:
+            return "error: workspace policy is read-only; bash is disabled"
         timeout = args.get("timeout")
         return run_shell(
             context.cwd,

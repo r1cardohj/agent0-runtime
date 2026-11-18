@@ -7,6 +7,7 @@ import os
 import tempfile
 from collections.abc import Callable
 from contextlib import suppress
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -39,6 +40,40 @@ class VisionSupport(Protocol):
 def resolve_path(cwd: Path, path: str) -> Path:
     p = Path(path.removeprefix("@").replace("\\ ", " ")).expanduser()
     return p if p.is_absolute() else cwd / p
+
+
+@dataclass(frozen=True)
+class WorkspacePolicy:
+    """Confine the filesystem tools to one workspace root.
+
+    ``root`` defaults to the run's cwd. Paths are resolved through symlinks and
+    must stay inside that root unless ``allow_outside`` opts out; ``read_only``
+    rejects every write and disables ``bash`` in the built-in registry.
+
+    ``bash`` itself runs in the host process and cannot be confined here: use a
+    container or an OS-level sandbox when shell confinement matters.
+    """
+
+    root: Path | None = None
+    read_only: bool = False
+    allow_outside: bool = False
+
+    def resolve(self, cwd: Path | None, path: str, *, write: bool = False) -> Path:
+        """Return the target path, or raise ``PermissionError`` if it is refused."""
+
+        if write and self.read_only:
+            raise PermissionError("workspace policy is read-only")
+        base = self.root if self.root is not None else cwd
+        fp = resolve_path(base or Path.cwd(), path)
+        if self.allow_outside:
+            return fp
+        if base is None:
+            raise PermissionError(f"no workspace is configured for {path!r}")
+        root = base.resolve()
+        target = fp.resolve()
+        if target != root and root not in target.parents:
+            raise PermissionError(f"path escapes the workspace: {path}")
+        return target
 
 
 def detect_image_mime(path: Path) -> str | None:
@@ -99,6 +134,14 @@ def _truncate_text(s: str, limit: int, *, tag: str = "truncated") -> str:
     return s if len(s) <= limit else s[:limit] + f"\n...[{tag} {len(s) - limit} chars]"
 
 
+def _target_path(
+    cwd: Path | None, path: str, policy: WorkspacePolicy | None, *, write: bool
+) -> Path:
+    """Resolve one tool path through the policy when the host configured one."""
+
+    return policy.resolve(cwd, path, write=write) if policy is not None else resolve_path(cwd, path)
+
+
 def read_file(
     cwd: Path | None,
     path: str,
@@ -108,10 +151,14 @@ def read_file(
     model: str | None = None,
     image_reader: ImageReader | None = None,
     supports_vision: VisionSupport | None = None,
+    policy: WorkspacePolicy | None = None,
 ) -> str | ToolResult:
-    if cwd is None:
+    if cwd is None and (policy is None or policy.root is None):
         return "error: no workspace is configured"
-    fp = resolve_path(cwd, path)
+    try:
+        fp = _target_path(cwd, path, policy, write=False)
+    except PermissionError as e:
+        return f"error: {e}"
     if not fp.is_file():
         return f"error: not a file: {fp}"
     mime = detect_image_mime(fp)
@@ -179,10 +226,15 @@ def write_file(
     path: str,
     content: str,
     on_preview: Callable[[str], None] | None = None,
+    *,
+    policy: WorkspacePolicy | None = None,
 ) -> str:
-    if cwd is None:
+    if cwd is None and (policy is None or policy.root is None):
         return "error: no workspace is configured"
-    fp = resolve_path(cwd, path)
+    try:
+        fp = _target_path(cwd, path, policy, write=True)
+    except PermissionError as e:
+        return f"error: {e}"
     try:
         before = fp.read_text(encoding="utf-8") if fp.exists() else ""
     except UnicodeDecodeError:
@@ -201,10 +253,15 @@ def edit_file(
     path: str,
     edits: list[dict[str, Any]],
     on_preview: Callable[[str], None] | None = None,
+    *,
+    policy: WorkspacePolicy | None = None,
 ) -> str:
-    if cwd is None:
+    if cwd is None and (policy is None or policy.root is None):
         return "error: no workspace is configured"
-    fp = resolve_path(cwd, path)
+    try:
+        fp = _target_path(cwd, path, policy, write=True)
+    except PermissionError as e:
+        return f"error: {e}"
     if not fp.is_file():
         return f"error: not a file: {fp}"
     try:
