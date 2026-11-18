@@ -174,7 +174,7 @@ def _first_int(get: Any, *keys: str) -> int | None:
 
 
 def response_usage(response: Any) -> dict[str, int] | None:
-    """Map Responses or Chat Completions usage onto the UI's token names.
+    """Map Responses or Chat Completions usage onto the runtime's token names.
 
     Responses reports input_tokens/output_tokens. Some compatible endpoints
     still report prompt_tokens/completion_tokens. Prefer the Responses names.
@@ -207,7 +207,7 @@ def response_usage(response: Any) -> dict[str, int] | None:
 
 
 def response_status(response: Any) -> tuple[str | None, str | None]:
-    """Return (UI finish reason, incomplete reason).
+    """Return (portable finish reason, incomplete reason).
 
     Responses reports status/incomplete_details. Compatible endpoints may still
     report Chat Completions finish_reason. Known cases become stop/length so

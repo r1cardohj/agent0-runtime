@@ -94,10 +94,10 @@ The runtime owns the model integration layer and normally depends on the
 OpenAI-compatible Responses endpoint, including streaming, function calls,
 usage mapping, retry-safe requests, raw Responses history, and client cleanup.
 The runtime owns provider metadata, configurable clients, credential storage,
-model discovery, and `RoutedResponsesBackend` intent/failover. Hosts such as
-hosts inject their credential store, client identity, and provider selection;
-other applications can use the default provider registry, their own router, or
-a different backend entirely.
+model discovery, and `RoutedResponsesBackend` intent/failover. Embedding
+applications inject their credential store, client identity, and provider
+selection; other applications can use the default provider registry, their own
+router, or a different backend entirely.
 
 `Agent(backend)` owns and closes its backend by default. Pass
 `close_backend=False` when a host shares that backend or its network client across
@@ -235,8 +235,9 @@ failures are isolated and recorded in `hooks.errors`; an optional `on_error`
 callback can forward them to a host logger.
 
 Lifecycle events distinguish the real `session_id` from `workspace_id`, and turn
-events include the matching `run_id`. Terminal signal handling remains in the
-REPL; outcome classification lives in `core.lifecycle`.
+events include the matching `run_id`. Terminal signal handling belongs to the
+host; outcome classification lives in
+`agent0_runtime.lifecycle.run_with_lifecycle`.
 
 ## Plugins
 
