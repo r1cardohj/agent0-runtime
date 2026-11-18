@@ -2,13 +2,14 @@
 
 ## Unreleased
 
+## 0.1.1
+
 ### Added
 
 - `GenerationConfig` (temperature, max output tokens, tool choice, parallel tool
   calls, and a verbatim `extra` escape hatch) for per-run and per-backend
   sampling settings; `Agent.run(generation=...)` overrides a backend default.
-- `RunResult.usage` now sums every model round in the run, with the per-round
-  detail in `RunResult.usage_by_turn`.
+- `RunResult.usage_by_turn`, the per-round usage detail behind the run total.
 - `WorkspacePolicy` confines `read`/`write`/`edit` to one root (symlink-aware),
   supports a read-only workspace that also disables `bash`, and is injected
   through `BuiltinToolsConfig(policy=...)`.
@@ -20,10 +21,13 @@
 
 ### Changed
 
+- `RunResult.usage` is summed over every model round instead of reporting the
+  latest round only, so a host can report one cost per run.
 - Only `openai` is a required dependency. Pillow moved to the `images` extra;
-  trafilatura, urllib3, and certifi moved to the `web` extra; `all` installs
-  every optional capability. Missing extras surface as an install hint on the
-  tool that needs them, never as an import failure.
+  trafilatura, urllib3, and certifi moved to the `web` extra; `pip install
+  "agent0-runtime[all]"` restores the previous install footprint. Missing extras
+  surface as an install hint on the tool that needs them, never as an import
+  failure.
 - `EventBus.errors` is a bounded deque (`max_errors=100`) instead of an unbounded
   list.
 

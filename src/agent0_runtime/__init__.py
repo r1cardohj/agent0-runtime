@@ -6,7 +6,7 @@ are independent of terminal interfaces and application-owned policy.
 
 import logging
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 from .backend import BackendRegistry, ModelBackend, ModelInfo, ModelRequest
 from .builtin_tools import (
